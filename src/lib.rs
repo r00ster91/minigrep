@@ -25,10 +25,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         if config.ln {
             output.push_str(&line.number.to_string());
             output.push_str(line.separator());
-            output.push_str(&line.content);
-        } else {
-            output.push_str(&line.content);
         }
+        output.push_str(&line.content);
         output.push('\n');
     }
 
