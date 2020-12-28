@@ -5,14 +5,19 @@ use minigrep::Config;
 // piping example: `minigrep \; src/lib.rs > output`
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    // for errors we will use the really handy macro called `eprintln` that will
-    // not print to the standard output, but to the standard error stream
-    // which means that if the user for example pipes the output to a file,
-    // there won't be error messages in the file, but on the console!
-    let config = Config::new(&args).unwrap_or_else(|error| {
-        eprintln!("Problem parsing arguments: {}", error);
+    let mut env_args = env::args();
+    let program_name = env_args.next().unwrap();
+    let config = Config::new(env_args).unwrap_or_else(|error| {
+        // for errors we will use this really handy macro called `eprintln` that will
+        // not print to the standard output, but to the standard error stream
+        // which means that if the user for example pipes the output to a file,
+        // there won't be error messages in the file, but on the console!
+        eprintln!(
+            "Problem parsing arguments: {}\n\
+                   Argument format: {{query}} {{filename}} (optional: 'ln')\n\
+             Example: `{} word list.txt ln`",
+            error, program_name
+        );
         process::exit(1);
     });
 

@@ -1,7 +1,7 @@
 use std::{env, error::Error, fs};
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
-    let contents = fs::read_to_string(config.filename)?;
+    let contents = fs::read_to_string(&config.filename)?;
 
     let lines = if config.case_sensitive {
         search_case_sensitive(&config.query, &contents)
@@ -9,65 +9,96 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         search_case_insensitive(&config.query, &contents)
     };
 
+    let capacity = lines
+        .iter()
+        .map(|line| {
+            if config.ln {
+                line.number_len() + line.separator().len() + line.content.len() + 1
+            } else {
+                line.content.len() + 1
+            }
+        })
+        .sum();
+    let mut output = String::with_capacity(capacity);
+
     for line in lines {
         if config.ln {
-            match line.number {
-                0..=9 => println!("{}  | {}", line.number, line.content),
-                10..=99 => println!("{} | {}", line.number, line.content),
-                100..=999 => println!("{}| {}", line.number, line.content),
-                _ => {
-                    return Err(
-                        format!("line number {}: unable to read any farther", line.number).into(),
-                    );
-                }
-            }
+            output.push_str(&line.number.to_string());
+            output.push_str(line.separator());
+            output.push_str(&line.content);
         } else {
-            println!("{}", line.content);
+            output.push_str(&line.content);
         }
+        output.push('\n');
     }
+
+    print!("{}", output);
+
+    // println!(
+    //     "capacity: {}, len: {}, calculated capacity: {}",
+    //     output.capacity(),
+    //     output.len(),
+    //     capacity
+    // );
 
     Ok(())
 }
 
 fn search_case_sensitive<'a>(query: &str, contents: &'a str) -> Vec<Line> {
-    let mut lines = Vec::new();
-
-    let mut number = 1;
-    for line in contents.lines() {
-        if line.contains(query) {
-            lines.push(Line {
-                number,
-                content: line.to_string(),
-            });
-        }
-        number += 1;
-    }
-
-    lines
+    contents
+        .lines()
+        .zip(1..) // One-based line numbers
+        .filter(|(content, _)| content.contains(query))
+        .map(|(content, number)| Line {
+            number,
+            content: content.to_string(),
+        })
+        .collect()
 }
 
 fn search_case_insensitive<'a>(query: &str, contents: &'a str) -> Vec<Line> {
-    let query = query.to_lowercase();
-    let mut lines = Vec::new();
-
-    let mut number = 1;
-    for line in contents.lines() {
-        if line.to_lowercase().contains(&query) {
-            lines.push(Line {
-                number,
-                content: line.to_string(),
-            });
-        }
-        number += 1;
-    }
-
-    lines
+    contents
+        .lines()
+        .zip(1..) // One-based line numbers
+        .filter(|(content, _)| content.to_lowercase().contains(&query.to_lowercase()))
+        .map(|(content, number)| Line {
+            number,
+            content: content.to_string(),
+        })
+        .collect()
 }
 
 #[derive(Debug, PartialEq)]
 struct Line {
-    number: i32,
+    number: usize,
     content: String,
+}
+
+impl Line {
+    fn number_len(&self) -> usize {
+        match self.number {
+            0..=9 => 1,
+            10..=99 => 2,
+            100..=999 => 3,
+            _ => 0,
+        }
+    }
+
+    fn separator(&self) -> &str {
+        match self.number_len() {
+            1 => "   | ",
+            2 => "  | ",
+            3 => " | ",
+            4 => "| ",
+            _ => {
+                info(&format!(
+                    "line number {}: unable to include any more line numbers",
+                    self.number
+                ));
+                ""
+            }
+        }
+    }
 }
 
 pub struct Config {
@@ -94,33 +125,31 @@ pub struct Config {
 // a(230)
 
 impl Config {
-    pub fn new(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() < 3 {
-            return Err("Not enough arguments\n\
-                        Argument format: {query} {filename} (option)\n\
-                        Options:\
-                        \n    ln: include line numbers\n\
-                        Example: `minigrep word list.txt ln`");
-        }
+    pub fn new(mut args: env::Args) -> Result<Config, &'static str> {
+        let query = match args.next() {
+            Some(arg) => arg,
+            None => return Err("no query"),
+        };
 
-        let query = args[1].clone();
-        let filename = args[2].clone();
-        let mut ln = false;
+        let filename = match args.next() {
+            Some(arg) => arg,
+            None => return Err("no filename"),
+        };
 
-        if args.len() > 3 {
-            let option = &args[3];
-            if option == "ln" {
-                ln = true;
-            } else {
-                info("Invalid argument given for the third parameter");
+        let ln = match args.next() {
+            Some(arg) => {
+                if arg == "ln" {
+                    true
+                } else {
+                    info("Invalid argument given for the third parameter");
+                    false
+                }
             }
-        }
+            None => false,
+        };
 
         let case_sensitive = env::var("CASE_SENSITIVE").is_ok();
 
-        // we will use `eprintln` for these messages too because we don't want them on the
-        // standard output
-        // after all, the standard error stream is for diagnostics too!
         if case_sensitive {
             info("CASE_SENSITIVE is set");
         } else {
@@ -137,11 +166,16 @@ impl Config {
 }
 
 fn info(string: &str) {
+    // we will use `eprintln` for these messages too because we don't want them on the
+    // standard output
+    // after all, the standard error stream is for diagnostics too!
     eprintln!("\x1b[38;5;11m{}\x1b[0m", string);
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn case_sensitive() {
         let query = "duct";
